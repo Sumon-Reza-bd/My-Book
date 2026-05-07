@@ -36,6 +36,7 @@ export type BillType = 'Electric' | 'Wifi';
 export interface BillEntry {
   id: string;
   type: BillType;
+  status: LeaveStatus;
   amount: number;
   month: string;
   year: string;

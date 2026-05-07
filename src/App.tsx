@@ -254,6 +254,7 @@ export default function App() {
   const [billMonth, setBillMonth] = useState(MONTHS[new Date().getMonth()]);
   const [billYear, setBillYear] = useState(new Date().getFullYear().toString());
   const [billFormType, setBillFormType] = useState<'Electric' | 'Wifi'>('Electric');
+  const [billStatus, setBillStatus] = useState<LeaveStatus>('Pending');
   const [billFilterYear, setBillFilterYear] = useState(new Date().getFullYear().toString());
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
 
@@ -286,6 +287,41 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('reminders', JSON.stringify(reminders));
+  }, [reminders]);
+
+  const sortedReminders = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nowTime = today.getTime();
+
+    return [...reminders].sort((a, b) => {
+      const dateA = new Date(a.date);
+      dateA.setHours(0, 0, 0, 0);
+      const dateB = new Date(b.date);
+      dateB.setHours(0, 0, 0, 0);
+
+      const timeA = dateA.getTime();
+      const timeB = dateB.getTime();
+
+      const getCategory = (t: number) => {
+        if (t === nowTime) return 0; // Today
+        if (t > nowTime) return 1;  // Future
+        return 2;                   // Past
+      };
+
+      const catA = getCategory(timeA);
+      const catB = getCategory(timeB);
+
+      if (catA !== catB) return catA - catB;
+
+      // Within same category
+      if (catA === 1) {
+        // Future: Nearest first (Ascending)
+        return timeA - timeB;
+      }
+      // Past or Today: Latest/Nearest first (Descending)
+      return timeB - timeA;
+    });
   }, [reminders]);
 
   useEffect(() => {
@@ -936,6 +972,7 @@ export default function App() {
     const newBill: BillEntry = {
       id: editingBillId || Math.random().toString(36).substring(2, 9),
       type: billFormType,
+      status: billStatus,
       amount: Number(billAmount),
       month: billMonth,
       year: billYear,
@@ -969,6 +1006,7 @@ export default function App() {
   const handleEditBill = (bill: BillEntry) => {
     setEditingBillId(bill.id);
     setBillFormType(bill.type);
+    setBillStatus(bill.status);
     setBillAmount(bill.amount.toString());
     setBillMonth(bill.month);
     setBillYear(bill.year);
@@ -3104,19 +3142,35 @@ export default function App() {
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Year</label>
-                      <input 
-                        type="number"
-                        value={billYear}
-                        onChange={(e) => setBillYear(e.target.value)}
-                        placeholder="Year"
-                        className={`w-full border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 transition-all ${
+                      <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Status</label>
+                      <select 
+                        value={billStatus}
+                        onChange={(e) => setBillStatus(e.target.value as LeaveStatus)}
+                        className={`w-full border rounded-xl px-3 py-1.5 text-sm appearance-none focus:outline-none transition-all ${
                           isDarkMode 
-                          ? 'bg-slate-800 border-slate-700 text-slate-200 focus:ring-indigo-500/20' 
-                          : 'bg-white border-slate-200 text-slate-900 focus:ring-indigo-500/20'
+                          ? 'bg-slate-800 border-slate-700 text-slate-200' 
+                          : 'bg-white border-slate-200 text-slate-900'
                         }`}
-                      />
+                      >
+                        <option value="Pending" className={isDarkMode ? 'bg-slate-800' : 'bg-white'}>Pending</option>
+                        <option value="Approved" className={isDarkMode ? 'bg-slate-800' : 'bg-white'}>Approved</option>
+                      </select>
                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Year</label>
+                    <input 
+                      type="number"
+                      value={billYear}
+                      onChange={(e) => setBillYear(e.target.value)}
+                      placeholder="Year"
+                      className={`w-full border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 transition-all ${
+                        isDarkMode 
+                        ? 'bg-slate-800 border-slate-700 text-slate-200 focus:ring-indigo-500/20' 
+                        : 'bg-white border-slate-200 text-slate-900 focus:ring-indigo-500/20'
+                      }`}
+                    />
                   </div>
 
                   <button 
@@ -3210,94 +3264,135 @@ export default function App() {
               })}
             </div>
 
-            <section className={`rounded-[2rem] shadow-sm border overflow-hidden ${
-              isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-            }`}>
-              <div className={`p-5 border-b flex items-center justify-between ${
-                isDarkMode ? 'border-slate-800 bg-slate-800/30' : 'border-slate-100 bg-slate-50/30'
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Approved Section */}
+              <section className={`rounded-[1.5rem] shadow-sm border overflow-hidden flex flex-col min-h-[300px] ${
+                isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
               }`}>
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-sm ${
-                    isDarkMode ? 'bg-indigo-950 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
-                  }`}>
-                    <History size={20} />
+                <div className={`p-4 border-b flex items-center justify-between ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <h2 className={`text-[11px] font-bold uppercase tracking-[0.1em] ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>APPROVED ({billFilterYear})</h2>
                   </div>
-                  <div>
-                    <h2 className={`text-sm font-bold leading-none mb-1 ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>Payment History</h2>
-                    <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">{billFilterYear} Transactions</p>
+                  <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isDarkMode ? 'border-emerald-500/20' : 'border-emerald-500/30'}`}>
+                    <CheckCircle2 size={10} className="text-emerald-500" />
                   </div>
                 </div>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className={`border-b ${isDarkMode ? 'bg-slate-800/10 border-slate-800' : 'bg-slate-50/50 border-slate-100'}`}>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">Month / Year</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">Type</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">Amount</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-50'}`}>
-                    {bills.filter(b => b.year === billFilterYear).length > 0 ? (
-                      bills.filter(b => b.year === billFilterYear).map((bill) => (
-                        <tr key={bill.id} className={`transition-colors ${isDarkMode ? 'hover:bg-slate-800/20' : 'hover:bg-slate-50/50'}`}>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col">
-                              <span className={`text-sm font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{bill.month}</span>
-                              <span className="text-[10px] text-slate-400 font-medium">{bill.year}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-tight border ${
-                              bill.type === 'Electric' 
-                                ? (isDarkMode ? 'bg-amber-950/30 text-amber-500 border-amber-900' : 'bg-amber-50 text-amber-600 border-amber-100') 
-                                : (isDarkMode ? 'bg-cyan-950/30 text-cyan-400 border-cyan-900' : 'bg-cyan-50 text-cyan-600 border-cyan-100')
-                            }`}>
-                              {bill.type}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`text-sm font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>৳ {bill.amount.toLocaleString()}</span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button 
-                                onClick={() => handleEditBill(bill)}
-                                className={`w-8 h-8 rounded-full border shadow-sm flex items-center justify-center transition-all ${
-                                  isDarkMode 
-                                  ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-indigo-400 hover:bg-slate-700' 
-                                  : 'bg-slate-50 border-slate-100 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
-                                }`}
-                              >
-                                <Edit2 size={12} />
-                              </button>
-                              <button 
-                                onClick={() => confirmDelete(bill.id, 'bill-entry')}
-                                className={`w-8 h-8 rounded-full border shadow-sm flex items-center justify-center transition-all ${
-                                  isDarkMode 
-                                  ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400 hover:bg-slate-700' 
-                                  : 'bg-slate-50 border-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                                }`}
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
+                
+                <div className="overflow-x-auto flex-1 h-full font-mono">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className={`${isDarkMode ? 'bg-slate-800/10 border-b border-slate-800' : 'bg-slate-50/20 border-b border-slate-50'}`}>
+                        <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">TYPE / DATE</th>
+                        <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400 text-center">AMOUNT</th>
+                        <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400 text-right">ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-50'}`}>
+                      {bills.filter(b => b.year === billFilterYear && b.status === 'Approved').length > 0 ? (
+                        bills.filter(b => b.year === billFilterYear && b.status === 'Approved').map((bill) => (
+                          <tr key={bill.id} className={`transition-colors ${isDarkMode ? 'hover:bg-slate-800/20' : 'hover:bg-slate-50/50'}`}>
+                            <td className="px-5 py-3">
+                              <div className="flex flex-col">
+                                <span className={`text-[13px] font-bold uppercase leading-tight mb-0.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{bill.type}</span>
+                                <span className={`text-[10px] font-semibold uppercase tracking-tight ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{bill.month} {bill.year}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-center">
+                              <span className={`text-[14px] font-bold tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>৳ {bill.amount.toLocaleString()}</span>
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => handleEditBill(bill)} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                                  isDarkMode ? 'bg-indigo-950 text-indigo-400 hover:bg-indigo-900' : 'bg-indigo-50 text-indigo-400 hover:bg-indigo-100'
+                                }`}>
+                                  <Edit2 size={12} />
+                                </button>
+                                <button onClick={() => confirmDelete(bill.id, 'bill-entry')} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                                  isDarkMode ? 'bg-rose-950 text-rose-400 hover:bg-rose-900' : 'bg-rose-50 text-rose-400 hover:bg-rose-100'
+                                }`}>
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={3} className="px-5 py-20 text-center">
+                            <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-700' : 'text-slate-300'}`}>NO ENTRIES</span>
                           </td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-20 text-center text-slate-400 text-xs font-medium italic">
-                          No bill history found for {billFilterYear}
-                        </td>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* Pending Section */}
+              <section className={`rounded-[1.5rem] shadow-sm border overflow-hidden flex flex-col min-h-[300px] ${
+                isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              }`}>
+                <div className={`p-4 border-b flex items-center justify-between ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    <h2 className={`text-[11px] font-bold uppercase tracking-[0.1em] ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>PENDING ({billFilterYear})</h2>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isDarkMode ? 'border-amber-500/20' : 'border-amber-500/30'}`}>
+                    <Clock size={10} className="text-amber-500" />
+                  </div>
+                </div>
+                
+                <div className="overflow-x-auto flex-1 h-full font-mono">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className={`${isDarkMode ? 'bg-slate-800/10 border-b border-slate-800' : 'bg-slate-50/20 border-b border-slate-50'}`}>
+                        <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">TYPE / DATE</th>
+                        <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400 text-center">AMOUNT</th>
+                        <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400 text-right">ACTIONS</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-50'}`}>
+                      {bills.filter(b => b.year === billFilterYear && b.status === 'Pending').length > 0 ? (
+                        bills.filter(b => b.year === billFilterYear && b.status === 'Pending').map((bill) => (
+                          <tr key={bill.id} className={`transition-colors ${isDarkMode ? 'hover:bg-slate-800/20' : 'hover:bg-slate-50/50'}`}>
+                            <td className="px-5 py-3">
+                              <div className="flex flex-col">
+                                <span className={`text-[13px] font-bold uppercase leading-tight mb-0.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{bill.type}</span>
+                                <span className={`text-[10px] font-semibold uppercase tracking-tight ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{bill.month} {bill.year}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-center">
+                              <span className={`text-[14px] font-bold tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>৳ {bill.amount.toLocaleString()}</span>
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => handleEditBill(bill)} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                                  isDarkMode ? 'bg-indigo-950 text-indigo-400 hover:bg-indigo-900' : 'bg-indigo-50 text-indigo-400 hover:bg-indigo-100'
+                                }`}>
+                                  <Edit2 size={12} />
+                                </button>
+                                <button onClick={() => confirmDelete(bill.id, 'bill-entry')} className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                                  isDarkMode ? 'bg-rose-950 text-rose-400 hover:bg-rose-900' : 'bg-rose-50 text-rose-400 hover:bg-rose-100'
+                                }`}>
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={3} className="px-5 py-20 text-center">
+                            <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-700' : 'text-slate-300'}`}>NO ENTRIES</span>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
           </div>
         </div>
       </div>
@@ -3395,13 +3490,13 @@ export default function App() {
               <h2 className={`font-bold text-sm tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Active Reminders</h2>
               <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold ${
                 isDarkMode ? 'bg-indigo-900 text-indigo-400' : 'bg-indigo-100 text-indigo-600'
-              }`}>{reminders.filter(r => r.isActive).length}</span>
+              }`}>{sortedReminders.filter(r => r.isActive).length}</span>
             </div>
             
             <div className="space-y-3">
               <AnimatePresence mode="popLayout">
-                {reminders.filter(r => r.isActive).length > 0 ? (
-                  reminders.filter(r => r.isActive).map(reminder => (
+                {sortedReminders.filter(r => r.isActive).length > 0 ? (
+                  sortedReminders.filter(r => r.isActive).map(reminder => (
                     <motion.div
                       layout
                       key={reminder.id}
@@ -3484,13 +3579,13 @@ export default function App() {
               <h2 className={`font-bold text-sm tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Closed Reminders</h2>
               <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold ${
                 isDarkMode ? 'bg-emerald-900 border border-emerald-800 text-emerald-400' : 'bg-emerald-50 border border-emerald-100 text-emerald-600'
-              }`}>{reminders.filter(r => !r.isActive).length}</span>
+              }`}>{sortedReminders.filter(r => !r.isActive).length}</span>
             </div>
             
             <div className="space-y-3">
               <AnimatePresence mode="popLayout">
-                {reminders.filter(r => !r.isActive).length > 0 ? (
-                  reminders.filter(r => !r.isActive).map(reminder => (
+                {sortedReminders.filter(r => !r.isActive).length > 0 ? (
+                  sortedReminders.filter(r => !r.isActive).map(reminder => (
                     <motion.div
                       layout
                       key={reminder.id}

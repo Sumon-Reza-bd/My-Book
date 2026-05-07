@@ -187,6 +187,7 @@ export const dbService = {
     return (data || []).map(item => ({
       id: item.id,
       type: item.type,
+      status: item.status || 'Pending',
       amount: item.amount,
       month: item.month,
       year: item.year,
@@ -198,6 +199,7 @@ export const dbService = {
     const dbItem = {
       id: bill.id,
       type: bill.type,
+      status: bill.status,
       amount: bill.amount,
       month: bill.month,
       year: bill.year,

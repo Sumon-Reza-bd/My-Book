@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS leaves (
 CREATE TABLE IF NOT EXISTS bills (
   id TEXT PRIMARY KEY,
   type TEXT,
+  status TEXT DEFAULT 'Pending',
   amount NUMERIC,
   month TEXT,
   year TEXT,
