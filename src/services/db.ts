@@ -1,3 +1,4 @@
+import { supabase } from '../lib/supabase';
 import { Transaction, DPSAccount, DPSDeposit, IncrementHistory, LeaveApplication, BillEntry, Reminder } from '../types';
 
 const TABLES = {
@@ -15,27 +16,30 @@ export const dbService = {
   // Transactions
   async getTransactions() {
     try {
-      const response = await fetch('/api/db/transactions?order=date');
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to fetch transactions');
+      const { data, error } = await supabase
+        .from(TABLES.TRANSACTIONS)
+        .select('*')
+        .order('date', { ascending: false });
+      
+      if (error) {
+        console.error('Supabase error fetching transactions:', error);
+        return [];
       }
-      return await response.json();
+      return data as Transaction[];
     } catch (err) {
       console.error('Error fetching transactions:', err);
       throw err;
     }
   },
-  async saveTransaction(transaction: Transaction) {
+  async saveTransaction(transaction: Partial<Transaction>) {
     try {
-      const response = await fetch('/api/db/transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(transaction)
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to save transaction');
+      const { error } = await supabase
+        .from(TABLES.TRANSACTIONS)
+        .upsert(transaction);
+      
+      if (error) {
+        console.error('Supabase error saving transaction:', error);
+        throw error;
       }
     } catch (err) {
       console.error('Error saving transaction:', err);
@@ -44,10 +48,14 @@ export const dbService = {
   },
   async deleteTransaction(id: string) {
     try {
-      const response = await fetch(`/api/db/transactions/${id}`, { method: 'DELETE' });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete transaction');
+      const { error } = await supabase
+        .from(TABLES.TRANSACTIONS)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Supabase error deleting transaction:', error);
+        throw error;
       }
     } catch (err) {
       console.error('Error deleting transaction:', err);
@@ -58,22 +66,30 @@ export const dbService = {
   // DPS Accounts
   async getDPSAccounts() {
     try {
-      const response = await fetch('/api/db/dps_accounts');
-      if (!response.ok) throw new Error('Failed to fetch DPS accounts');
-      return await response.json();
+      const { data, error } = await supabase
+        .from(TABLES.DPS_ACCOUNTS)
+        .select('*');
+      
+      if (error) {
+        console.error('Supabase error fetching DPS accounts:', error);
+        return [];
+      }
+      return data as DPSAccount[];
     } catch (err) {
       console.error('Error fetching DPS accounts:', err);
       throw err;
     }
   },
-  async saveDPSAccount(account: DPSAccount) {
+  async saveDPSAccount(account: Partial<DPSAccount>) {
     try {
-      const response = await fetch('/api/db/dps_accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(account)
-      });
-      if (!response.ok) throw new Error('Failed to save DPS account');
+      const { error } = await supabase
+        .from(TABLES.DPS_ACCOUNTS)
+        .upsert(account);
+      
+      if (error) {
+        console.error('Supabase error saving DPS account:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error saving DPS account:', err);
       throw err;
@@ -81,8 +97,15 @@ export const dbService = {
   },
   async deleteDPSAccount(id: string) {
     try {
-      const response = await fetch(`/api/db/dps_accounts/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete DPS account');
+      const { error } = await supabase
+        .from(TABLES.DPS_ACCOUNTS)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Supabase error deleting DPS account:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error deleting DPS account:', err);
       throw err;
@@ -92,22 +115,31 @@ export const dbService = {
   // DPS Deposits
   async getDPSDeposits() {
     try {
-      const response = await fetch('/api/db/dps_deposits?order=date');
-      if (!response.ok) throw new Error('Failed to fetch DPS deposits');
-      return await response.json();
+      const { data, error } = await supabase
+        .from(TABLES.DPS_DEPOSITS)
+        .select('*')
+        .order('date', { ascending: false });
+      
+      if (error) {
+        console.error('Supabase error fetching DPS deposits:', error);
+        return [];
+      }
+      return data as DPSDeposit[];
     } catch (err) {
       console.error('Error fetching DPS deposits:', err);
       throw err;
     }
   },
-  async saveDPSDeposit(deposit: DPSDeposit) {
+  async saveDPSDeposit(deposit: Partial<DPSDeposit>) {
     try {
-      const response = await fetch('/api/db/dps_deposits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(deposit)
-      });
-      if (!response.ok) throw new Error('Failed to save DPS deposit');
+      const { error } = await supabase
+        .from(TABLES.DPS_DEPOSITS)
+        .upsert(deposit);
+      
+      if (error) {
+        console.error('Supabase error saving DPS deposit:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error saving DPS deposit:', err);
       throw err;
@@ -115,8 +147,15 @@ export const dbService = {
   },
   async deleteDPSDeposit(id: string) {
     try {
-      const response = await fetch(`/api/db/dps_deposits/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete DPS deposit');
+      const { error } = await supabase
+        .from(TABLES.DPS_DEPOSITS)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Supabase error deleting DPS deposit:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error deleting DPS deposit:', err);
       throw err;
@@ -126,9 +165,16 @@ export const dbService = {
   // Salary Configuration
   async getSalarySettings() {
     try {
-      const response = await fetch('/api/db/salary_settings/single');
-      if (!response.ok) return null;
-      return await response.json();
+      const { data, error } = await supabase
+        .from(TABLES.SALARY_SETTINGS)
+        .select('*')
+        .maybeSingle();
+      
+      if (error) {
+        console.error('Supabase error fetching salary settings:', error);
+        return null;
+      }
+      return data;
     } catch (err) {
       console.error('Error fetching salary settings:', err);
       return null;
@@ -136,12 +182,14 @@ export const dbService = {
   },
   async saveSalarySettings(settings: any) {
     try {
-      const response = await fetch('/api/db/salary_settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: settings.id || 'default_settings', ...settings })
-      });
-      if (!response.ok) throw new Error('Failed to save salary settings');
+      const { error } = await supabase
+        .from(TABLES.SALARY_SETTINGS)
+        .upsert({ id: settings.id || 'default_settings', ...settings });
+      
+      if (error) {
+        console.error('Supabase error saving salary settings:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error saving salary settings:', err);
       throw err;
@@ -151,22 +199,31 @@ export const dbService = {
   // Increment History
   async getIncrementHistory() {
     try {
-      const response = await fetch('/api/db/increments?order=year');
-      if (!response.ok) throw new Error('Failed to fetch increment history');
-      return await response.json();
+      const { data, error } = await supabase
+        .from(TABLES.INCREMENTS)
+        .select('*')
+        .order('year', { ascending: false });
+      
+      if (error) {
+        console.error('Supabase error fetching increment history:', error);
+        return [];
+      }
+      return data as IncrementHistory[];
     } catch (err) {
       console.error('Error fetching increment history:', err);
       throw err;
     }
   },
-  async saveIncrement(increment: IncrementHistory) {
+  async saveIncrement(increment: Partial<IncrementHistory>) {
     try {
-      const response = await fetch('/api/db/increments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(increment)
-      });
-      if (!response.ok) throw new Error('Failed to save increment');
+      const { error } = await supabase
+        .from(TABLES.INCREMENTS)
+        .upsert(increment);
+      
+      if (error) {
+        console.error('Supabase error saving increment:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error saving increment:', err);
       throw err;
@@ -174,8 +231,15 @@ export const dbService = {
   },
   async deleteIncrement(id: string) {
     try {
-      const response = await fetch(`/api/db/increments/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete increment');
+      const { error } = await supabase
+        .from(TABLES.INCREMENTS)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Supabase error deleting increment:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error deleting increment:', err);
       throw err;
@@ -185,22 +249,31 @@ export const dbService = {
   // Leaves
   async getLeaves() {
     try {
-      const response = await fetch('/api/db/leaves?order=appliedDate');
-      if (!response.ok) throw new Error('Failed to fetch leaves');
-      return await response.json();
+      const { data, error } = await supabase
+        .from(TABLES.LEAVES)
+        .select('*')
+        .order('appliedDate', { ascending: false });
+      
+      if (error) {
+        console.error('Supabase error fetching leaves:', error);
+        return [];
+      }
+      return data as LeaveApplication[];
     } catch (err) {
       console.error('Error fetching leaves:', err);
       throw err;
     }
   },
-  async saveLeave(leave: LeaveApplication) {
+  async saveLeave(leave: Partial<LeaveApplication>) {
     try {
-      const response = await fetch('/api/db/leaves', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(leave)
-      });
-      if (!response.ok) throw new Error('Failed to save leave');
+      const { error } = await supabase
+        .from(TABLES.LEAVES)
+        .upsert(leave);
+      
+      if (error) {
+        console.error('Supabase error saving leave:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error saving leave:', err);
       throw err;
@@ -208,8 +281,15 @@ export const dbService = {
   },
   async deleteLeave(id: string) {
     try {
-      const response = await fetch(`/api/db/leaves/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete leave');
+      const { error } = await supabase
+        .from(TABLES.LEAVES)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Supabase error deleting leave:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error deleting leave:', err);
       throw err;
@@ -219,22 +299,31 @@ export const dbService = {
   // Bills
   async getBills() {
     try {
-      const response = await fetch('/api/db/bills?order=date');
-      if (!response.ok) throw new Error('Failed to fetch bills');
-      return await response.json();
+      const { data, error } = await supabase
+        .from(TABLES.BILLS)
+        .select('*')
+        .order('date', { ascending: false });
+      
+      if (error) {
+        console.error('Supabase error fetching bills:', error);
+        return [];
+      }
+      return data as BillEntry[];
     } catch (err) {
       console.error('Error fetching bills:', err);
       throw err;
     }
   },
-  async saveBill(bill: BillEntry) {
+  async saveBill(bill: Partial<BillEntry>) {
     try {
-      const response = await fetch('/api/db/bills', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bill)
-      });
-      if (!response.ok) throw new Error('Failed to save bill');
+      const { error } = await supabase
+        .from(TABLES.BILLS)
+        .upsert(bill);
+      
+      if (error) {
+        console.error('Supabase error saving bill:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error saving bill:', err);
       throw err;
@@ -242,8 +331,15 @@ export const dbService = {
   },
   async deleteBill(id: string) {
     try {
-      const response = await fetch(`/api/db/bills/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete bill');
+      const { error } = await supabase
+        .from(TABLES.BILLS)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Supabase error deleting bill:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error deleting bill:', err);
       throw err;
@@ -253,22 +349,31 @@ export const dbService = {
   // Reminders
   async getReminders() {
     try {
-      const response = await fetch('/api/db/reminders?order=date&ascending=true');
-      if (!response.ok) throw new Error('Failed to fetch reminders');
-      return await response.json();
+      const { data, error } = await supabase
+        .from(TABLES.REMINDERS)
+        .select('*')
+        .order('date', { ascending: true });
+      
+      if (error) {
+        console.error('Supabase error fetching reminders:', error);
+        return [];
+      }
+      return data as Reminder[];
     } catch (err) {
       console.error('Error fetching reminders:', err);
       throw err;
     }
   },
-  async saveReminder(reminder: Reminder) {
+  async saveReminder(reminder: Partial<Reminder>) {
     try {
-      const response = await fetch('/api/db/reminders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reminder)
-      });
-      if (!response.ok) throw new Error('Failed to save reminder');
+      const { error } = await supabase
+        .from(TABLES.REMINDERS)
+        .upsert(reminder);
+      
+      if (error) {
+        console.error('Supabase error saving reminder:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error saving reminder:', err);
       throw err;
@@ -276,8 +381,15 @@ export const dbService = {
   },
   async deleteReminder(id: string) {
     try {
-      const response = await fetch(`/api/db/reminders/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete reminder');
+      const { error } = await supabase
+        .from(TABLES.REMINDERS)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Supabase error deleting reminder:', error);
+        throw error;
+      }
     } catch (err) {
       console.error('Error deleting reminder:', err);
       throw err;
