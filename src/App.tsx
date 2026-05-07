@@ -920,6 +920,19 @@ export default function App() {
       return;
     }
 
+    // Check for duplicate bill of the same type in the same month/year
+    const duplicate = bills.find(b => 
+      b.type === billFormType && 
+      b.month === billMonth && 
+      b.year === billYear && 
+      b.id !== editingBillId
+    );
+
+    if (duplicate) {
+      showNotification(`A ${billFormType} bill already exists for ${billMonth} ${billYear}`, 'error');
+      return;
+    }
+
     const newBill: BillEntry = {
       id: editingBillId || Math.random().toString(36).substring(2, 9),
       type: billFormType,
@@ -2438,7 +2451,10 @@ export default function App() {
                       <span className="text-xl font-bold text-white">৳ {salaryCalculations.totalEarnings.toLocaleString()}</span>
                     </div>
                   </section>
+                </div>
 
+                {/* Right sub-column: Increment History Table */}
+                <div className="lg:col-span-7 space-y-6">
                   {/* Bonus Breakdown Card */}
                   <section className={`rounded-2xl shadow-sm border overflow-hidden flex flex-col ${
                     isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -2478,11 +2494,7 @@ export default function App() {
                       <span className="text-[10px] font-bold uppercase tracking-widest text-white">TOTAL BONUS</span>
                       <span className="text-xl font-bold text-white">৳ {(salaryCalculations.yearlyBonus + salaryCalculations.eidUlFitrBonus + salaryCalculations.eidUlAdhaBonus).toLocaleString()}</span>
                     </div>
-                  </section>
-                </div>
-
-                {/* Right sub-column: Increment History Table */}
-                <div className="lg:col-span-7">
+                   </section>
                   <section className={`rounded-2xl shadow-sm border overflow-hidden ${
                     isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
                   }`}>
