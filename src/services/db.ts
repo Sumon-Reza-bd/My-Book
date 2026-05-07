@@ -214,7 +214,7 @@ export const dbService = {
 
   // Reminders
   async getReminders() {
-    const { data, error } = await supabase.from('reminders').select('*').order('date', { ascending: true });
+    const { data, error } = await supabase.from('reminders').select('*').order('date', { ascending: false });
     if (error) throw error;
     return (data || []).map(item => ({
       id: item.id,
