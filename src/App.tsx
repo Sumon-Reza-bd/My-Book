@@ -43,7 +43,6 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Transaction, TransactionType, CATEGORIES, MONTHS, YEARS, DPSAccount, DPSDeposit, IncrementHistory, LeaveApplication, LeaveType, LeaveStatus, BillEntry, BillType, Reminder } from './types';
 import { dbService } from './services/db';
-import { supabase } from './lib/supabase';
 
 export default function App() {
   // View State
@@ -111,13 +110,9 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  // Supabase Data Loading
+  // Data Loading
   useEffect(() => {
     const loadAllData = async () => {
-      if (!supabase) {
-        setIsLoading(false);
-        return;
-      }
       setIsLoading(true);
       try {
         const [
@@ -162,13 +157,11 @@ export default function App() {
           setAnnualLimit(remoteSalarySettings.annualLimit || '20');
         }
       } catch (error) {
-        console.error('Error loading data from Supabase:', error);
-        showNotification('Failed to load data from cloud. Using local data.', 'error');
+        console.error('Error loading data:', error);
       } finally {
         setIsLoading(false);
       }
     };
-
     loadAllData();
   }, []);
 
@@ -489,10 +482,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveSalarySettings(settings);
-      }
+      setIsSyncing(true);
+      await dbService.saveSalarySettings(settings);
       
       localStorage.setItem('grossSalary', grossSalary);
       localStorage.setItem('baseDeduction', baseDeduction);
@@ -526,27 +517,25 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveIncrement(newIncrement);
+      setIsSyncing(true);
+      await dbService.saveIncrement(newIncrement);
 
-        if (!editingIncrementId) {
-          // Also update salary settings if it's a new increment
-          const settings = {
-            grossSalary: incrementCalculations.grossTotal.toString(),
-            baseDeduction,
-            medical,
-            conveyance,
-            food,
-            attendanceBonus,
-            days,
-            rate,
-            casualLimit,
-            medicalLimit,
-            annualLimit
-          };
-          await dbService.saveSalarySettings(settings);
-        }
+      if (!editingIncrementId) {
+        // Also update salary settings if it's a new increment
+        const settings = {
+          grossSalary: incrementCalculations.grossTotal.toString(),
+          baseDeduction,
+          medical,
+          conveyance,
+          food,
+          attendanceBonus,
+          days,
+          rate,
+          casualLimit,
+          medicalLimit,
+          annualLimit
+        };
+        await dbService.saveSalarySettings(settings);
       }
 
       if (editingIncrementId) {
@@ -713,10 +702,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveTransaction(newTransaction);
-      }
+      setIsSyncing(true);
+      await dbService.saveTransaction(newTransaction);
       
       if (editingId) {
         setTransactions(prev => prev.map(t => t.id === editingId ? newTransaction : t));
@@ -757,45 +744,34 @@ export default function App() {
     if (!deleteConfirm) return;
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        if (deleteConfirm.type === 'financial') {
-          await dbService.deleteTransaction(deleteConfirm.id);
-        } else if (deleteConfirm.type === 'dps-deposit') {
-          await dbService.deleteDPSDeposit(deleteConfirm.id);
-        } else if (deleteConfirm.type === 'dps-account') {
-          await dbService.deleteDPSAccount(deleteConfirm.id);
-        } else if (deleteConfirm.type === 'salary-increment') {
-          await dbService.deleteIncrement(deleteConfirm.id);
-        } else if (deleteConfirm.type === 'leave-application') {
-          await dbService.deleteLeave(deleteConfirm.id);
-        } else if (deleteConfirm.type === 'bill-entry') {
-          await dbService.deleteBill(deleteConfirm.id);
-        } else if (deleteConfirm.type === 'reminder') {
-          await dbService.deleteReminder(deleteConfirm.id);
-        }
-      }
-
+      setIsSyncing(true);
       if (deleteConfirm.type === 'financial') {
+        await dbService.deleteTransaction(deleteConfirm.id);
         setTransactions(prev => prev.filter(t => t.id !== deleteConfirm.id));
         showNotification('Transaction deleted successfully!', 'error');
       } else if (deleteConfirm.type === 'dps-deposit') {
+        await dbService.deleteDPSDeposit(deleteConfirm.id);
         setDpsDeposits(prev => prev.filter(d => d.id !== deleteConfirm.id));
         showNotification('DPS Deposit deleted successfully!', 'error');
       } else if (deleteConfirm.type === 'dps-account') {
+        await dbService.deleteDPSAccount(deleteConfirm.id);
         setDpsAccounts(prev => prev.filter(a => a.id !== deleteConfirm.id));
         setDpsDeposits(prev => prev.filter(d => d.accountId !== deleteConfirm.id));
         showNotification('DPS Account and associated deposits deleted!', 'error');
       } else if (deleteConfirm.type === 'salary-increment') {
+        await dbService.deleteIncrement(deleteConfirm.id);
         setIncrementHistory(prev => prev.filter(inc => inc.id !== deleteConfirm.id));
         showNotification('Increment deleted successfully!', 'error');
       } else if (deleteConfirm.type === 'leave-application') {
+        await dbService.deleteLeave(deleteConfirm.id);
         setLeaves(prev => prev.filter(l => l.id !== deleteConfirm.id));
         showNotification('Leave application deleted!', 'error');
       } else if (deleteConfirm.type === 'bill-entry') {
+        await dbService.deleteBill(deleteConfirm.id);
         setBills(prev => prev.filter(b => b.id !== deleteConfirm.id));
         showNotification('Bill record deleted!', 'error');
       } else if (deleteConfirm.type === 'reminder') {
+        await dbService.deleteReminder(deleteConfirm.id);
         setReminders(prev => prev.filter(r => r.id !== deleteConfirm.id));
         showNotification('Reminder deleted successfully!', 'error');
       }
@@ -826,10 +802,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveLeave(newLeave);
-      }
+      setIsSyncing(true);
+      await dbService.saveLeave(newLeave);
 
       if (editingLeaveId) {
         setLeaves(prev => prev.map(l => l.id === editingLeaveId ? newLeave : l));
@@ -865,10 +839,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveReminder(newReminder);
-      }
+      setIsSyncing(true);
+      await dbService.saveReminder(newReminder);
 
       if (editingReminderId) {
         setReminders(prev => prev.map(r => r.id === editingReminderId ? { ...newReminder, isActive: r.isActive } : r));
@@ -932,10 +904,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveSalarySettings(settings);
-      }
+      setIsSyncing(true);
+      await dbService.saveSalarySettings(settings);
       
       localStorage.setItem('casualLimit', casualLimit);
       localStorage.setItem('medicalLimit', medicalLimit);
@@ -981,10 +951,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveBill(newBill);
-      }
+      setIsSyncing(true);
+      await dbService.saveBill(newBill);
 
       if (editingBillId) {
         setBills(prev => prev.map(b => b.id === editingBillId ? newBill : b));
@@ -1048,10 +1016,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveDPSAccount(newAccount);
-      }
+      setIsSyncing(true);
+      await dbService.saveDPSAccount(newAccount);
 
       if (editingDpsAccountId) {
         setDpsAccounts(prev => prev.map(a => a.id === editingDpsAccountId ? newAccount : a));
@@ -1115,10 +1081,8 @@ export default function App() {
     };
 
     try {
-      if (supabase) {
-        setIsSyncing(true);
-        await dbService.saveDPSDeposit(newDeposit);
-      }
+      setIsSyncing(true);
+      await dbService.saveDPSDeposit(newDeposit);
 
       if (editingDpsDepositId) {
         setDpsDeposits(prev => prev.map(d => d.id === editingDpsDepositId ? newDeposit : d));
