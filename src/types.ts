@@ -53,6 +53,15 @@ export interface LeaveApplication {
   appliedDate: string;
 }
 
+export interface Reminder {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
 export const CATEGORIES = [
   'Food',
   'Rent',

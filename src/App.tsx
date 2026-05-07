@@ -35,14 +35,21 @@ import {
   Briefcase,
   ReceiptText,
   Sun,
-  Moon
+  Moon,
+  BellRing,
+  CheckCircle,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Transaction, TransactionType, CATEGORIES, MONTHS, YEARS, DPSAccount, DPSDeposit, IncrementHistory, LeaveApplication, LeaveType, LeaveStatus, BillEntry, BillType } from './types';
+import { Transaction, TransactionType, CATEGORIES, MONTHS, YEARS, DPSAccount, DPSDeposit, IncrementHistory, LeaveApplication, LeaveType, LeaveStatus, BillEntry, BillType, Reminder } from './types';
+import { dbService } from './services/db';
+import { supabase } from './lib/supabase';
 
 export default function App() {
   // View State
-  const [currentView, setCurrentView] = useState<'financial' | 'dps' | 'salary' | 'leave' | 'bills'>('financial');
+  const [currentView, setCurrentView] = useState<'financial' | 'dps' | 'salary' | 'leave' | 'bills' | 'reminders'>('financial');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // State
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -86,7 +93,7 @@ export default function App() {
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
   const [showLeaveSummary, setShowLeaveSummary] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; type: 'financial' | 'dps-deposit' | 'dps-account' | 'salary-increment' | 'leave-application' | 'bill-entry' } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; type: 'financial' | 'dps-deposit' | 'dps-account' | 'salary-increment' | 'leave-application' | 'bill-entry' | 'reminder' } | null>(null);
   const [viewingScheduleId, setViewingScheduleId] = useState<string | null>(null);
   const [dpsHistoryFilter, setDpsHistoryFilter] = useState<string>('all');
   const [showWelcome, setShowWelcome] = useState(false);
@@ -95,16 +102,75 @@ export default function App() {
     return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
   });
 
-  // Theme Effect
   useEffect(() => {
+    localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
     }
   }, [isDarkMode]);
+
+  // Supabase Data Loading
+  useEffect(() => {
+    const loadAllData = async () => {
+      if (!supabase) {
+        setIsLoading(false);
+        return;
+      }
+      setIsLoading(true);
+      try {
+        const [
+          remoteTransactions,
+          remoteDPSAccounts,
+          remoteDPSDeposits,
+          remoteIncrementHistory,
+          remoteLeaves,
+          remoteBills,
+          remoteReminders,
+          remoteSalarySettings
+        ] = await Promise.all([
+          dbService.getTransactions(),
+          dbService.getDPSAccounts(),
+          dbService.getDPSDeposits(),
+          dbService.getIncrementHistory(),
+          dbService.getLeaves(),
+          dbService.getBills(),
+          dbService.getReminders(),
+          dbService.getSalarySettings()
+        ]);
+
+        if (remoteTransactions.length > 0) setTransactions(remoteTransactions);
+        if (remoteDPSAccounts.length > 0) setDpsAccounts(remoteDPSAccounts);
+        if (remoteDPSDeposits.length > 0) setDpsDeposits(remoteDPSDeposits);
+        if (remoteIncrementHistory.length > 0) setIncrementHistory(remoteIncrementHistory);
+        if (remoteLeaves.length > 0) setLeaves(remoteLeaves);
+        if (remoteBills.length > 0) setBills(remoteBills);
+        if (remoteReminders.length > 0) setReminders(remoteReminders);
+        
+        if (remoteSalarySettings) {
+          setGrossSalary(remoteSalarySettings.grossSalary || '');
+          setBaseDeduction(remoteSalarySettings.baseDeduction || '');
+          setMedical(remoteSalarySettings.medical || '');
+          setConveyance(remoteSalarySettings.conveyance || '');
+          setFood(remoteSalarySettings.food || '');
+          setAttendanceBonus(remoteSalarySettings.attendanceBonus || '');
+          setDays(remoteSalarySettings.days || '');
+          setRate(remoteSalarySettings.rate || '');
+          setCasualLimit(remoteSalarySettings.casualLimit || '15');
+          setMedicalLimit(remoteSalarySettings.medicalLimit || '15');
+          setAnnualLimit(remoteSalarySettings.annualLimit || '20');
+        }
+      } catch (error) {
+        console.error('Error loading data from Supabase:', error);
+        showNotification('Failed to load data from cloud. Using local data.', 'error');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadAllData();
+  }, []);
 
   // Welcome Effect
   useEffect(() => {
@@ -190,6 +256,37 @@ export default function App() {
   const [billFormType, setBillFormType] = useState<'Electric' | 'Wifi'>('Electric');
   const [billFilterYear, setBillFilterYear] = useState(new Date().getFullYear().toString());
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
+
+  // Reminder State
+  const [reminders, setReminders] = useState<Reminder[]>(() => {
+    const saved = localStorage.getItem('reminders');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [reminderTitle, setReminderTitle] = useState('');
+  const [reminderDescription, setReminderDescription] = useState('');
+  const [reminderDate, setReminderDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editingReminderId, setEditingReminderId] = useState<string | null>(null);
+
+  const getTimeRemaining = (dateStr: string) => {
+    const targetDate = new Date(dateStr);
+    const now = new Date();
+    targetDate.setHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0);
+    
+    const diffTime = targetDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Tomorrow";
+    if (diffDays === -1) return "Yesterday";
+    if (diffDays > 1) return `${diffDays} days left`;
+    if (diffDays < -1) return `${Math.abs(diffDays)} days ago`;
+    return "";
+  };
+
+  useEffect(() => {
+    localStorage.setItem('reminders', JSON.stringify(reminders));
+  }, [reminders]);
 
   useEffect(() => {
     localStorage.setItem('leaves', JSON.stringify(leaves));
@@ -340,19 +437,45 @@ export default function App() {
       .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
   }, [leaves, leaveFilterYear]);
 
-  const handleSavePaySlip = () => {
-    localStorage.setItem('grossSalary', grossSalary);
-    localStorage.setItem('baseDeduction', baseDeduction);
-    localStorage.setItem('medical', medical);
-    localStorage.setItem('conveyance', conveyance);
-    localStorage.setItem('food', food);
-    localStorage.setItem('attendanceBonus', attendanceBonus);
-    localStorage.setItem('days', days);
-    localStorage.setItem('rate', rate);
-    showNotification('Pay Slip saved successfully');
+  const handleSavePaySlip = async () => {
+    const settings = {
+      grossSalary,
+      baseDeduction,
+      medical,
+      conveyance,
+      food,
+      attendanceBonus,
+      days,
+      rate,
+      casualLimit,
+      medicalLimit,
+      annualLimit
+    };
+
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveSalarySettings(settings);
+      }
+      
+      localStorage.setItem('grossSalary', grossSalary);
+      localStorage.setItem('baseDeduction', baseDeduction);
+      localStorage.setItem('medical', medical);
+      localStorage.setItem('conveyance', conveyance);
+      localStorage.setItem('food', food);
+      localStorage.setItem('attendanceBonus', attendanceBonus);
+      localStorage.setItem('days', days);
+      localStorage.setItem('rate', rate);
+      showNotification('Pay Slip saved');
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleSaveIncrement = () => {
+  const handleSaveIncrement = async () => {
     if (!percentIncrease) {
       showNotification('Please enter percentage increase', 'error');
       return;
@@ -366,18 +489,47 @@ export default function App() {
       grossTotal: incrementCalculations.grossTotal
     };
 
-    if (editingIncrementId) {
-      setIncrementHistory(prev => prev.map(inc => inc.id === editingIncrementId ? newIncrement : inc));
-      setEditingIncrementId(null);
-      showNotification('Increment updated successfully');
-    } else {
-      setIncrementHistory([newIncrement, ...incrementHistory]);
-      setGrossSalary(incrementCalculations.grossTotal.toString());
-      showNotification('Increment saved successfully');
-    }
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveIncrement(newIncrement);
 
-    // Reset
-    setPercentIncrease('');
+        if (!editingIncrementId) {
+          // Also update salary settings if it's a new increment
+          const settings = {
+            grossSalary: incrementCalculations.grossTotal.toString(),
+            baseDeduction,
+            medical,
+            conveyance,
+            food,
+            attendanceBonus,
+            days,
+            rate,
+            casualLimit,
+            medicalLimit,
+            annualLimit
+          };
+          await dbService.saveSalarySettings(settings);
+        }
+      }
+
+      if (editingIncrementId) {
+        setIncrementHistory(prev => prev.map(inc => inc.id === editingIncrementId ? newIncrement : inc));
+        setEditingIncrementId(null);
+        showNotification('Increment updated successfully');
+      } else {
+        setIncrementHistory([newIncrement, ...incrementHistory]);
+        setGrossSalary(incrementCalculations.grossTotal.toString());
+        showNotification('Increment saved successfully');
+      }
+      
+      setPercentIncrease('');
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleEditIncrement = (inc: IncrementHistory) => {
@@ -512,7 +664,7 @@ export default function App() {
   };
 
   // Handlers
-  const handleAddTransaction = () => {
+  const handleAddTransaction = async () => {
     if (!amount || isNaN(Number(amount))) return;
 
     const newTransaction: Transaction = {
@@ -524,13 +676,25 @@ export default function App() {
       description
     };
 
-    if (editingId) {
-      setTransactions(prev => prev.map(t => t.id === editingId ? newTransaction : t));
-      setEditingId(null);
-      showNotification('Transaction updated successfully!');
-    } else {
-      setTransactions(prev => [newTransaction, ...prev]);
-      showNotification('Transaction added successfully!');
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveTransaction(newTransaction);
+      }
+      
+      if (editingId) {
+        setTransactions(prev => prev.map(t => t.id === editingId ? newTransaction : t));
+        setEditingId(null);
+        showNotification('Transaction updated successfully!');
+      } else {
+        setTransactions(prev => [newTransaction, ...prev]);
+        showNotification('Transaction added successfully!');
+      }
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message || 'Check database tables'}`, 'error');
+    } finally {
+      setIsSyncing(false);
     }
 
     // Reset form
@@ -549,40 +713,67 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const confirmDelete = (id: string, type: 'financial' | 'dps-deposit' | 'dps-account' | 'salary-increment' | 'leave-application' | 'bill-entry') => {
+  const confirmDelete = (id: string, type: 'financial' | 'dps-deposit' | 'dps-account' | 'salary-increment' | 'leave-application' | 'bill-entry' | 'reminder') => {
     setDeleteConfirm({ id, type });
   };
 
-  const executeDelete = () => {
+  const executeDelete = async () => {
     if (!deleteConfirm) return;
 
-    if (deleteConfirm.type === 'financial') {
-      setTransactions(prev => prev.filter(t => t.id !== deleteConfirm.id));
-      showNotification('Transaction deleted successfully!', 'error');
-    } else if (deleteConfirm.type === 'dps-deposit') {
-      setDpsDeposits(prev => prev.filter(d => d.id !== deleteConfirm.id));
-      showNotification('DPS Deposit deleted successfully!', 'error');
-    } else if (deleteConfirm.type === 'dps-account') {
-      setDpsAccounts(prev => prev.filter(a => a.id !== deleteConfirm.id));
-      // Also delete associated deposits
-      setDpsDeposits(prev => prev.filter(d => d.accountId !== deleteConfirm.id));
-      showNotification('DPS Account and associated deposits deleted!', 'error');
-    } else if (deleteConfirm.type === 'salary-increment') {
-      setIncrementHistory(prev => prev.filter(inc => inc.id !== deleteConfirm.id));
-      showNotification('Increment deleted successfully!', 'error');
-    } else if (deleteConfirm.type === 'leave-application') {
-      setLeaves(prev => prev.filter(l => l.id !== deleteConfirm.id));
-      showNotification('Leave application deleted!', 'error');
-    } else if (deleteConfirm.type === 'bill-entry') {
-      setBills(prev => prev.filter(b => b.id !== deleteConfirm.id));
-      showNotification('Bill record deleted!', 'error');
-    }
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        if (deleteConfirm.type === 'financial') {
+          await dbService.deleteTransaction(deleteConfirm.id);
+        } else if (deleteConfirm.type === 'dps-deposit') {
+          await dbService.deleteDPSDeposit(deleteConfirm.id);
+        } else if (deleteConfirm.type === 'dps-account') {
+          await dbService.deleteDPSAccount(deleteConfirm.id);
+        } else if (deleteConfirm.type === 'salary-increment') {
+          await dbService.deleteIncrement(deleteConfirm.id);
+        } else if (deleteConfirm.type === 'leave-application') {
+          await dbService.deleteLeave(deleteConfirm.id);
+        } else if (deleteConfirm.type === 'bill-entry') {
+          await dbService.deleteBill(deleteConfirm.id);
+        } else if (deleteConfirm.type === 'reminder') {
+          await dbService.deleteReminder(deleteConfirm.id);
+        }
+      }
 
-    setDeleteConfirm(null);
+      if (deleteConfirm.type === 'financial') {
+        setTransactions(prev => prev.filter(t => t.id !== deleteConfirm.id));
+        showNotification('Transaction deleted successfully!', 'error');
+      } else if (deleteConfirm.type === 'dps-deposit') {
+        setDpsDeposits(prev => prev.filter(d => d.id !== deleteConfirm.id));
+        showNotification('DPS Deposit deleted successfully!', 'error');
+      } else if (deleteConfirm.type === 'dps-account') {
+        setDpsAccounts(prev => prev.filter(a => a.id !== deleteConfirm.id));
+        setDpsDeposits(prev => prev.filter(d => d.accountId !== deleteConfirm.id));
+        showNotification('DPS Account and associated deposits deleted!', 'error');
+      } else if (deleteConfirm.type === 'salary-increment') {
+        setIncrementHistory(prev => prev.filter(inc => inc.id !== deleteConfirm.id));
+        showNotification('Increment deleted successfully!', 'error');
+      } else if (deleteConfirm.type === 'leave-application') {
+        setLeaves(prev => prev.filter(l => l.id !== deleteConfirm.id));
+        showNotification('Leave application deleted!', 'error');
+      } else if (deleteConfirm.type === 'bill-entry') {
+        setBills(prev => prev.filter(b => b.id !== deleteConfirm.id));
+        showNotification('Bill record deleted!', 'error');
+      } else if (deleteConfirm.type === 'reminder') {
+        setReminders(prev => prev.filter(r => r.id !== deleteConfirm.id));
+        showNotification('Reminder deleted successfully!', 'error');
+      }
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Delete failed: ${error.message || 'Check database'}`, 'error');
+    } finally {
+      setIsSyncing(false);
+      setDeleteConfirm(null);
+    }
   };
 
   // Leave Handlers
-  const handleApplyLeave = () => {
+  const handleApplyLeave = async () => {
     if (!leaveReason) {
       showNotification('Please provide a reason', 'error');
       return;
@@ -598,27 +789,132 @@ export default function App() {
       appliedDate: new Date().toISOString()
     };
 
-    if (editingLeaveId) {
-      setLeaves(prev => prev.map(l => l.id === editingLeaveId ? newLeave : l));
-      setEditingLeaveId(null);
-      showNotification('Leave application updated successfully');
-    } else {
-      setLeaves(prev => [newLeave, ...prev]);
-      showNotification('Leave application submitted successfully');
-    }
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveLeave(newLeave);
+      }
 
-    setLeaveReason('');
+      if (editingLeaveId) {
+        setLeaves(prev => prev.map(l => l.id === editingLeaveId ? newLeave : l));
+        setEditingLeaveId(null);
+        showNotification('Leave application updated successfully');
+      } else {
+        setLeaves(prev => [newLeave, ...prev]);
+        showNotification('Leave application submitted successfully');
+      }
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+      setLeaveReason('');
+    }
   };
 
-  const handleSaveLeaveLimits = () => {
-    localStorage.setItem('casualLimit', casualLimit);
-    localStorage.setItem('medicalLimit', medicalLimit);
-    localStorage.setItem('annualLimit', annualLimit);
-    showNotification('Leave limits saved successfully');
+  // Reminder Handlers
+  const handleAddReminder = async () => {
+    if (!reminderTitle) {
+      showNotification('Please enter a title', 'error');
+      return;
+    }
+
+    const newReminder: Reminder = {
+      id: editingReminderId || crypto.randomUUID(),
+      title: reminderTitle,
+      description: reminderDescription,
+      date: reminderDate,
+      isActive: true,
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveReminder(newReminder);
+      }
+
+      if (editingReminderId) {
+        setReminders(prev => prev.map(r => r.id === editingReminderId ? { ...newReminder, isActive: r.isActive } : r));
+        setEditingReminderId(null);
+        showNotification('Reminder updated successfully');
+      } else {
+        setReminders(prev => [newReminder, ...prev]);
+        showNotification('Reminder added successfully');
+      }
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+      setReminderTitle('');
+      setReminderDescription('');
+    }
+  };
+
+  const toggleReminderStatus = async (id: string) => {
+    const reminder = reminders.find(r => r.id === id);
+    if (!reminder) return;
+
+    const updatedReminder = { ...reminder, isActive: !reminder.isActive };
+    
+    try {
+      setIsSyncing(true);
+      await dbService.saveReminder(updatedReminder);
+      setReminders(prev => prev.map(r => r.id === id ? updatedReminder : r));
+      showNotification('Reminder status updated');
+    } catch (error) {
+      console.error(error);
+      showNotification('Sync failed', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleEditReminder = (reminder: Reminder) => {
+    setEditingReminderId(reminder.id);
+    setReminderTitle(reminder.title);
+    setReminderDescription(reminder.description);
+    setReminderDate(reminder.date);
+    setCurrentView('reminders');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveLeaveLimits = async () => {
+    const settings = {
+      grossSalary,
+      baseDeduction,
+      medical,
+      conveyance,
+      food,
+      attendanceBonus,
+      days,
+      rate,
+      casualLimit,
+      medicalLimit,
+      annualLimit
+    };
+
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveSalarySettings(settings);
+      }
+      
+      localStorage.setItem('casualLimit', casualLimit);
+      localStorage.setItem('medicalLimit', medicalLimit);
+      localStorage.setItem('annualLimit', annualLimit);
+      showNotification('Leave limits saved');
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // Bill Handlers
-  const handleApplyBill = () => {
+  const handleApplyBill = async () => {
     if (!billAmount) {
       showNotification('Please enter the bill amount', 'error');
       return;
@@ -634,16 +930,27 @@ export default function App() {
       appliedDate: new Date().toISOString()
     };
 
-    if (editingBillId) {
-      setBills(prev => prev.map(b => b.id === editingBillId ? newBill : b));
-      setEditingBillId(null);
-      showNotification('Bill information updated successfully');
-    } else {
-      setBills(prev => [newBill, ...prev]);
-      showNotification('Bill information saved successfully');
-    }
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveBill(newBill);
+      }
 
-    setBillAmount('');
+      if (editingBillId) {
+        setBills(prev => prev.map(b => b.id === editingBillId ? newBill : b));
+        setEditingBillId(null);
+        showNotification('Bill information updated successfully');
+      } else {
+        setBills(prev => [newBill, ...prev]);
+        showNotification('Bill information saved successfully');
+      }
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
+      setBillAmount('');
+    }
   };
 
   const handleEditBill = (bill: BillEntry) => {
@@ -666,7 +973,7 @@ export default function App() {
   };
 
   // DPS Handlers
-  const handleAddDPSAccount = () => {
+  const handleAddDPSAccount = async () => {
     if (!dpsBankName || !dpsMonthlyDeposit || !dpsPeriodYears) return;
 
     const monthly = Number(dpsMonthlyDeposit);
@@ -689,20 +996,32 @@ export default function App() {
       maturityDate: maturityDate.toISOString().split('T')[0]
     };
 
-    if (editingDpsAccountId) {
-      setDpsAccounts(prev => prev.map(a => a.id === editingDpsAccountId ? newAccount : a));
-      setEditingDpsAccountId(null);
-      showNotification('DPS Account updated successfully!');
-    } else {
-      setDpsAccounts(prev => [...prev, newAccount]);
-      showNotification('DPS Account created successfully!');
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveDPSAccount(newAccount);
+      }
+
+      if (editingDpsAccountId) {
+        setDpsAccounts(prev => prev.map(a => a.id === editingDpsAccountId ? newAccount : a));
+        setEditingDpsAccountId(null);
+        showNotification('DPS Account updated successfully!');
+      } else {
+        setDpsAccounts(prev => [...prev, newAccount]);
+        showNotification('DPS Account created successfully!');
+      }
+      
+      // Reset
+      setDpsBankName('');
+      setDpsMonthlyDeposit('');
+      setDpsPeriodYears('');
+      setDpsProfitPercentage('');
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
     }
-    
-    // Reset
-    setDpsBankName('');
-    setDpsMonthlyDeposit('');
-    setDpsPeriodYears('');
-    setDpsProfitPercentage('');
   };
 
   const handleEditDPSAccount = (acc: DPSAccount) => {
@@ -716,7 +1035,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleAddDPSDeposit = () => {
+  const handleAddDPSDeposit = async () => {
     if (!selectedDpsAccountId || !depositAmount) return;
 
     // Check if a deposit already exists for this account in the same month/year
@@ -744,18 +1063,30 @@ export default function App() {
       description: depositNote
     };
 
-    if (editingDpsDepositId) {
-      setDpsDeposits(prev => prev.map(d => d.id === editingDpsDepositId ? newDeposit : d));
-      setEditingDpsDepositId(null);
-      showNotification('DPS Deposit updated successfully!');
-    } else {
-      setDpsDeposits(prev => [...prev, newDeposit]);
-      showNotification('DPS Deposit recorded successfully!');
+    try {
+      if (supabase) {
+        setIsSyncing(true);
+        await dbService.saveDPSDeposit(newDeposit);
+      }
+
+      if (editingDpsDepositId) {
+        setDpsDeposits(prev => prev.map(d => d.id === editingDpsDepositId ? newDeposit : d));
+        setEditingDpsDepositId(null);
+        showNotification('DPS Deposit updated successfully!');
+      } else {
+        setDpsDeposits(prev => [...prev, newDeposit]);
+        showNotification('DPS Deposit recorded successfully!');
+      }
+      
+      // Reset
+      setDepositAmount('');
+      setDepositNote('');
+    } catch (error: any) {
+      console.error(error);
+      showNotification(`Sync failed: ${error.message}`, 'error');
+    } finally {
+      setIsSyncing(false);
     }
-    
-    // Reset
-    setDepositAmount('');
-    setDepositNote('');
   };
 
   const handleEditDPSDeposit = (d: DPSDeposit) => {
@@ -810,6 +1141,19 @@ export default function App() {
     };
   }, [dpsMonthlyDeposit, dpsPeriodYears, dpsProfitPercentage, dpsStartDate]);
 
+  if (isLoading) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center gap-4 ${isDarkMode ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'}`}>
+        <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+          className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full"
+        />
+        <p className="text-sm font-bold tracking-widest uppercase opacity-50">Syncing with Cloud...</p>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans`}>
       {/* Notifications */}
@@ -856,15 +1200,17 @@ export default function App() {
         </div>
 
         {/* Center: Pill Navigation */}
-        <nav className={`absolute left-1/2 -translate-x-1/2 border shadow-sm rounded-full p-1 hidden md:flex items-center gap-1 transition-colors duration-300 ${
-          isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'
-        }`}>
+        <div className="flex items-center gap-4">
+          <nav className={`absolute left-1/2 -translate-x-1/2 border shadow-sm rounded-full p-1 hidden md:flex items-center gap-1 transition-colors duration-300 ${
+            isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'
+          }`}>
           {[
             { id: 'financial', label: 'Financial', icon: Wallet },
             { id: 'dps', label: 'DPS', icon: PiggyBank },
             { id: 'salary', label: 'Salary', icon: Briefcase },
             { id: 'leave', label: 'Leave', icon: Calendar },
             { id: 'bills', label: 'Bills', icon: ReceiptText },
+            { id: 'reminders', label: 'Reminder', icon: BellRing },
           ].map((item) => {
             const isActive = currentView === item.id;
             const Icon = item.icon;
@@ -894,9 +1240,26 @@ export default function App() {
             );
           })}
         </nav>
+      </div>
 
         {/* Right Area: Theme Toggle & More */}
         <div className="flex items-center gap-3">
+          <AnimatePresence>
+            {isSyncing && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.8, x: 10 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.8, x: 10 }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border ${
+                  isDarkMode ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' : 'bg-indigo-50 border-indigo-100 text-indigo-600'
+                }`}
+              >
+                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Syncing</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             className={`p-2 rounded-xl border transition-all duration-300 flex items-center justify-center ${
@@ -925,6 +1288,7 @@ export default function App() {
                   { id: 'salary', label: 'Salary', icon: Briefcase },
                   { id: 'leave', label: 'Leave', icon: Calendar },
                   { id: 'bills', label: 'Bills', icon: ReceiptText },
+                  { id: 'reminders', label: 'Reminder', icon: BellRing },
                 ].map((item) => (
                   <button 
                     key={item.id}
@@ -1998,13 +2362,12 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="pt-2">
-                          <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest block mb-1">Gross Total</label>
-                          <div className={`w-full rounded-xl p-4 shadow-lg ${
-                            isDarkMode ? 'bg-indigo-900 shadow-indigo-950/40' : 'bg-indigo-600 shadow-indigo-100 text-white'
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Gross Total</label>
+                          <div className={`w-full border rounded-xl px-3 py-1.5 text-sm font-bold ${
+                            isDarkMode ? 'bg-emerald-950/20 border-emerald-900/40 text-emerald-400' : 'bg-emerald-50 border-emerald-100 text-emerald-600'
                           }`}>
-                            <p className={`text-[8px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-indigo-300' : 'text-white opacity-80'}`}>New Gross Salary</p>
-                            <h3 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-white'}`}>৳ {incrementCalculations.grossTotal.toLocaleString()}</h3>
+                            ৳ {incrementCalculations.grossTotal.toLocaleString()}
                           </div>
                         </div>
 
@@ -2654,7 +3017,7 @@ export default function App() {
           </div>
         </div>
       </div>
-    ) : (
+    ) : currentView === 'bills' ? (
       <div className="lg:col-span-12 space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Bill Form */}
@@ -2926,7 +3289,261 @@ export default function App() {
           </div>
         </div>
       </div>
-    )}
+    ) : currentView === 'reminders' ? (
+      <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left Column: Add Reminder Form */}
+        <aside className="lg:col-span-3 space-y-6">
+          <section className={`rounded-2xl shadow-sm border overflow-hidden ${
+            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div className={`p-4 border-b ${isDarkMode ? 'border-slate-800 bg-slate-800/50' : 'border-slate-100 bg-slate-50/50'}`}>
+              <h2 className={`text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Add Reminder</h2>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Title</label>
+                <input 
+                  type="text"
+                  value={reminderTitle}
+                  onChange={(e) => setReminderTitle(e.target.value)}
+                  placeholder="What needs to be reminded?"
+                  className={`w-full border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 transition-all ${
+                    isDarkMode 
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 focus:ring-indigo-500/10' 
+                    : 'bg-white border-slate-200 text-slate-900 focus:ring-indigo-500/20'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Date</label>
+                <input 
+                  type="date"
+                  value={reminderDate}
+                  onChange={(e) => setReminderDate(e.target.value)}
+                  className={`w-full border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 transition-all ${
+                    isDarkMode 
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 focus:ring-indigo-500/10' 
+                    : 'bg-white border-slate-200 text-slate-900 focus:ring-indigo-500/20'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Description</label>
+                <textarea 
+                  value={reminderDescription}
+                  onChange={(e) => setReminderDescription(e.target.value)}
+                  placeholder="Add some details..."
+                  rows={3}
+                  className={`w-full border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 transition-all resize-none ${
+                    isDarkMode 
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 focus:ring-indigo-500/10' 
+                    : 'bg-white border-slate-200 text-slate-900 focus:ring-indigo-500/20'
+                  }`}
+                />
+              </div>
+
+              <button 
+                onClick={handleAddReminder}
+                className={`w-full bg-[#2563EB] hover:bg-blue-700 text-white font-bold py-2 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 mt-2 ${
+                  isDarkMode ? 'shadow-indigo-950/20' : 'shadow-indigo-100'
+                }`}
+              >
+                <Plus size={18} />
+                {editingReminderId ? 'UPDATE REMINDER' : 'ADD REMINDER'}
+              </button>
+
+              {editingReminderId && (
+                <button 
+                  onClick={() => {
+                    setEditingReminderId(null);
+                    setReminderTitle('');
+                    setReminderDescription('');
+                  }}
+                  className={`w-full font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2 ${
+                    isDarkMode ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <X size={18} />
+                  CANCEL EDIT
+                </button>
+              )}
+            </div>
+          </section>
+        </aside>
+
+        {/* Right Columns: Active and Closed Reminders */}
+        <div className="lg:col-span-9 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Active Reminders */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 px-1">
+              <Clock className="text-indigo-600" size={18} />
+              <h2 className={`font-bold text-sm tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Active Reminders</h2>
+              <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                isDarkMode ? 'bg-indigo-900 text-indigo-400' : 'bg-indigo-100 text-indigo-600'
+              }`}>{reminders.filter(r => r.isActive).length}</span>
+            </div>
+            
+            <div className="space-y-3">
+              <AnimatePresence mode="popLayout">
+                {reminders.filter(r => r.isActive).length > 0 ? (
+                  reminders.filter(r => r.isActive).map(reminder => (
+                    <motion.div
+                      layout
+                      key={reminder.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className={`p-4 rounded-3xl border shadow-sm transition-all hover:shadow-md relative group ${
+                        isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className={`font-bold text-sm mb-0.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{reminder.title}</h3>
+                          <div className="flex items-center gap-2">
+                            <p className={`text-[10px] flex items-center gap-1 font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                              <Calendar size={10} /> {new Date(reminder.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </p>
+                            {(() => {
+                              const timeStatus = getTimeRemaining(reminder.date);
+                              const isOverdue = timeStatus.includes('ago') || timeStatus === 'Yesterday';
+                              return (
+                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter ${
+                                  isOverdue
+                                    ? (isDarkMode ? 'bg-rose-900/40 text-rose-400' : 'bg-rose-50 text-rose-600')
+                                    : (isDarkMode ? 'bg-indigo-900/40 text-indigo-400' : 'bg-indigo-50 text-indigo-600')
+                                }`}>
+                                  {timeStatus}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1">
+                            <button 
+                              onClick={() => handleEditReminder(reminder)}
+                              className={`p-1.5 rounded-lg border text-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 transition-all ${
+                                isDarkMode ? 'border-slate-800' : 'border-slate-100'
+                              }`}
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                            <button 
+                              onClick={() => confirmDelete(reminder.id, 'reminder')}
+                              className={`p-1.5 rounded-lg border text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition-all ${
+                                isDarkMode ? 'border-slate-800' : 'border-slate-100'
+                              }`}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                          <button 
+                            onClick={() => toggleReminderStatus(reminder.id)}
+                            className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all ${
+                              isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-indigo-400 hover:bg-slate-700' : 'bg-slate-50 border-slate-100 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                            }`}
+                          >
+                            <CheckCircle size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      <p className={`text-[11px] leading-relaxed mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{reminder.description}</p>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className={`p-8 rounded-3xl border border-dashed text-center space-y-2 ${isDarkMode ? 'border-slate-800 text-slate-600' : 'border-slate-200 text-slate-400'}`}>
+                    <BellRing size={24} className="mx-auto opacity-30" />
+                    <p className="text-xs font-medium italic">No active reminders</p>
+                  </div>
+                )}
+              </AnimatePresence>
+            </div>
+          </section>
+
+          {/* Closed Reminders */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 px-1">
+              <CheckCircle2 className="text-emerald-500" size={18} />
+              <h2 className={`font-bold text-sm tracking-tight ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Closed Reminders</h2>
+              <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                isDarkMode ? 'bg-emerald-900 border border-emerald-800 text-emerald-400' : 'bg-emerald-50 border border-emerald-100 text-emerald-600'
+              }`}>{reminders.filter(r => !r.isActive).length}</span>
+            </div>
+            
+            <div className="space-y-3">
+              <AnimatePresence mode="popLayout">
+                {reminders.filter(r => !r.isActive).length > 0 ? (
+                  reminders.filter(r => !r.isActive).map(reminder => (
+                    <motion.div
+                      layout
+                      key={reminder.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className={`p-4 rounded-3xl border shadow-sm transition-all hover:shadow-md relative group opacity-60 grayscale-[0.5] ${
+                        isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className={`font-bold text-sm mb-0.5 line-through ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{reminder.title}</h3>
+                          <div className="flex items-center gap-2">
+                            <p className={`text-[10px] flex items-center gap-1 font-bold ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              <Calendar size={10} /> {new Date(reminder.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </p>
+                            {(() => {
+                              const timeStatus = getTimeRemaining(reminder.date);
+                              const isOverdue = timeStatus.includes('ago') || timeStatus === 'Yesterday';
+                              return (
+                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter opacity-70 ${
+                                  isOverdue
+                                    ? (isDarkMode ? 'bg-rose-900/40 text-rose-400' : 'bg-rose-50 text-rose-600')
+                                    : (isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-500')
+                                }`}>
+                                  {timeStatus}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button 
+                            onClick={() => confirmDelete(reminder.id, 'reminder')}
+                            className={`p-1.5 rounded-lg border text-rose-400/50 hover:bg-rose-50 hover:text-rose-600 transition-all ${
+                              isDarkMode ? 'border-slate-800' : 'border-slate-100'
+                            }`}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                          <button 
+                            onClick={() => toggleReminderStatus(reminder.id)}
+                            className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all bg-emerald-500 border-emerald-600 text-white shadow-sm shadow-emerald-500/20`}
+                          >
+                            <CheckCircle size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      <p className={`text-[11px] leading-relaxed mb-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-600'}`}>{reminder.description}</p>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className={`p-8 rounded-3xl border border-dashed text-center space-y-2 ${isDarkMode ? 'border-slate-800 text-slate-600' : 'border-slate-200 text-slate-400'}`}>
+                    <CheckCircle2 size={24} className="mx-auto opacity-30" />
+                    <p className="text-xs font-medium italic">No closed reminders</p>
+                  </div>
+                )}
+              </AnimatePresence>
+            </div>
+          </section>
+        </div>
+      </div>
+    ) : null}
       </main>
 
       {/* Delete Confirmation Modal */}
